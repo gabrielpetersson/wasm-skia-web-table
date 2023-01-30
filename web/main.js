@@ -2,8 +2,8 @@
  * Make a canvas element fit to the display window.
  */
 function resizeCanvasToDisplaySize(canvas) {
-  const width = canvas.clientWidth | 1;
-  const height = canvas.clientHeight | 1;
+  const width = canvas.clientWidth * window.devicePixelRatio;
+  const height = canvas.clientHeight * window.devicePixelRatio;
   if (canvas.width !== width || canvas.height !== height) {
     canvas.width = width;
     canvas.height = height;
@@ -26,6 +26,11 @@ createRustSkiaModule().then((RustSkia) => {
     stencil: true,
     alpha: true,
   });
+
+  const debugInfo = context.getExtension("WEBGL_debug_renderer_info");
+  const vendor = context.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL);
+  const renderer = context.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+  console.log(vendor, renderer);
 
   // Register the context with emscripten
   handle = RustSkia.GL.registerContext(context, { majorVersion: 2 });
@@ -62,14 +67,15 @@ createRustSkiaModule().then((RustSkia) => {
     "mousewheel",
     (event) => {
       event.preventDefault();
-      // scrollY += event.deltaY;
+      scrollY += event.deltaY;
       // scrollX += event.deltaX;
       if (isRunning) {
         return;
       }
+
       isRunning = true;
       window.requestAnimationFrame(() => {
-        RustSkia._on_translate(state, event.deltaY);
+        RustSkia._on_translate(state, scrollY);
         isRunning = false;
       });
     },
@@ -83,7 +89,7 @@ createRustSkiaModule().then((RustSkia) => {
     }
   });
 
-  RustSkia._on_animation_frame(state, scrollY);
+  RustSkia._on_animation_frame(state);
   // const cb = () => {
   //   RustSkia._on_animation_frame(state, scrollY);
   //   window.requestAnimationFrame(cb);
