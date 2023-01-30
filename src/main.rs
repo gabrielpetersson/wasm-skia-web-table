@@ -7,7 +7,6 @@ use skia_safe::{
 };
 use std::{boxed::Box, collections::HashMap};
 use once_cell::sync::Lazy;
-use rand::{distributions::Alphanumeric, Rng}; // 0.8
 
 
 extern "C" {
@@ -165,10 +164,9 @@ pub extern "C" fn resize_surface(state: *mut State, width: i32, height: i32) {
     state.set_surface(surface);
 }
 
+const USE_GPU: bool = false;
 fn raster_tile(state: &mut State, tile_offset: i32) -> Image {  //, paint: &Paint, font: &Font
-    let start = now();
-
-    // let font = 
+    // let start = now();
     
     let mut text_paint = Paint::default();
     text_paint.set_color4f(Color4f { r: 255., g: 255., b: 255., a: 1.}, None);
@@ -183,30 +181,35 @@ fn raster_tile(state: &mut State, tile_offset: i32) -> Image {  //, paint: &Pain
     border_paint.set_style(PaintStyle::Fill);
     border_paint.set_color(Color::BLACK);
     border_paint.set_anti_alias(true);
-    // let canvas_recorder = state.recorder.begin_recording(Rect { left:0., top: 0., right: state.surface.width() as f32, bottom: TILE_HEIGHT}, None);    
-    
 
     // let vv = state.surface.recording_context().unwrap();
-    
     // &surf.from_backend_render_target(ColorType::RGBA8888, &BackendFormat::new_gl(state.gpu_state.framebuffer_info.format, state.gpu_state.framebuffer_info.format))
     // let surf = SurfaceCharacterization::default();
     
-    let mut surf = create_surface(&mut state.gpu_state, state.surface.width(), TILE_HEIGHT as i32);
-    let characterization = surf.characterize().unwrap();
-    let mut display_list_recorder = DeferredDisplayListRecorder::new(&characterization);
+    let canvas;
+    let mut surf;
+    let mut display_list_recorder;
+    if USE_GPU == true {
+        surf = create_surface(&mut state.gpu_state, state.surface.width(), TILE_HEIGHT as i32);
+        let characterization = surf.characterize().unwrap();
+        let mut display_list_recorder = DeferredDisplayListRecorder::new(&characterization);
+        canvas = display_list_recorder.canvas();
+    } else {
+        canvas = state.recorder.begin_recording(Rect { left:0., top: 0., right: state.surface.width() as f32, bottom: TILE_HEIGHT}, None);    
+    }
+    
 
-    println!("tile setup - {}", now() - start);
-    let start = now();
+    // println!("tile setup - {}", now() - start);
+    // let start = now();
 
-    let canvas = display_list_recorder.canvas();
     let start_row = tile_offset * ROWS_PER_TILE;
     let end_row = ROWS_PER_TILE + start_row;
     
     // background
     let tile_width = state.surface.width() as f32;
     canvas.draw_rect(Rect {left: 0., top: 0., right: tile_width, bottom: TILE_HEIGHT},  &bg_paint);
-    println!("tile bg - {}", now() - start);
-    let start = now();
+    // println!("tile bg - {}", now() - start);
+    // let start = now();
 
     // horizontal lines
     for row in start_row..end_row {
@@ -214,8 +217,8 @@ fn raster_tile(state: &mut State, tile_offset: i32) -> Image {  //, paint: &Pain
         canvas.draw_line(Point {x: 0., y },Point {x:tile_width, y },  &border_paint);
     }
 
-    println!("tile horizontal lines - {}", now() - start);
-    let start = now();
+    // println!("tile horizontal lines - {}", now() - start);
+    // let start = now();
 
     // vertical lines
     for col in 0..7 {
@@ -223,60 +226,50 @@ fn raster_tile(state: &mut State, tile_offset: i32) -> Image {  //, paint: &Pain
         canvas.draw_line(Point {x: vertical_line_x, y: 0. },Point {x: vertical_line_x, y: TILE_HEIGHT },  &border_paint);
     }
 
-    println!("tile vertical lines - {}", now() - start);
-    let start = now();
+    // println!("tile vertical lines - {}", now() - start);
+    // let start = now();
 
-    // slow
-    let s: String = rand::thread_rng()
-    .sample_iter(&Alphanumeric)
-    .take(7)
-    .map(char::from)
-    .collect();
-    let text_blob = TextBlob::from_str(&s, &FONT).unwrap();
-
-    println!("tile init text - {}", now() - start);
-    let start = now();
-
-    // text
-    for col in 0..7 {
-        let x = CELL_WIDTH * col as f32;
-        for row in start_row..end_row {
-            let y = CELL_HEIGHT * (row - start_row) as f32;
-            
+    // text    
+    for row in start_row..end_row {
+        let y = CELL_HEIGHT * (row - start_row) as f32;
+        let row_string = row.to_string();
+        for col in 0..7 {
+            let x = CELL_WIDTH * col as f32;
+            // let col_string = col.to_string();
             // canvas.draw_text_blob(&text_blob, (x + 20., y + 40.), &text_paint);
-            let start = now();
+            // let start = now();
             // canvas.draw_text_blob(&text_blob, (x + 20., y + 40.), &text_paint);
-            canvas.draw_str(&s, (x + 20., y + 40.), &FONT, &text_paint);
-            println!("hh draw {}", now() - start);
-        }
+            // slow
+            // let s: String = rand::thread_rng()
+            //     .sample_iter(&Alphanumeric)
+            //     .take(7)
+            //     .map(char::from)
+            //     .collect();
+
+            let text_blob = TextBlob::from_str(&row_string, &FONT).unwrap();
+            canvas.draw_text_blob(text_blob, (x + 20., y + 40.),  &text_paint);
+            // println!("hh draw {}", now() - start);
+        }        
     }
+    
+    // println!("tile text - {}", now() - start);
+    // let start = now();
 
     
-
-    println!("tile text - {}", now() - start);
-    let start = now();
-
-    // let picture = state.recorder.finish_recording_as_picture(None).unwrap();
-    let mut paint = Paint::default();
-    paint.set_anti_alias(true);
-
-    let display_list = display_list_recorder.detach().unwrap();
-    surf.draw_display_list(&display_list);
-    println!("tile draw display list - {}", now() - start);
-    let start = now();
-
-    surf.flush();
-    println!("tile flush - {}", now() - start);
-    let start = now();
-    let image = surf.image_snapshot();
-    println!("tile image - {}", now() - start);
-    // state.surface.canvas().draw_image(&img, (0., 0.), None);
-
-    
-    // let image = Image::from_picture(&picture, ISize { width: state.surface.width(), height: TILE_HEIGHT as i32}, None, Some(&paint), skia_safe::image::BitDepth::U8, Some(ColorSpace::new_srgb())).unwrap();
-    // let new_image = image.new_texture_image(&mut state.gpu_state.context, skia_safe::gpu::MipMapped::No).unwrap();
-    println!("IS GPU?? {}", image.is_texture_backed());
-    // new_image
+    let image;
+    if USE_GPU == true {
+        let display_list = display_list_recorder.detach().unwrap();
+        surf.draw_display_list(&display_list);
+        // println!("tile draw display list - {}", now() - start);
+        // let start = now();
+        image = surf.image_snapshot();
+        // println!("tile image - {}", now() - start);
+    } else {
+        let picture = state.recorder.finish_recording_as_picture(None).unwrap();
+        image = Image::from_picture(&picture, ISize { width: state.surface.width(), height: TILE_HEIGHT as i32}, None, None, skia_safe::image::BitDepth::U8, Some(ColorSpace::new_srgb())).unwrap();
+        // let new_image = image.new_texture_image(&mut state.gpu_state.context, skia_safe::gpu::MipMapped::No).unwrap();
+        println!("IS GPU?? {}", image.is_texture_backed());
+    }
     image
 }
 
@@ -295,7 +288,7 @@ pub extern "C" fn on_animation_frame(state: *mut State) {
 
     let tiles_on_screen = (surface_height as f32 / TILE_HEIGHT).ceil() as i32;
     for tile_offset in 0..tiles_on_screen {
-        println!("tile offset {}", tile_offset);
+        // println!("tile offset {}", tile_offset);
         let image = raster_tile(state, tile_offset);
 
         let y = TILE_HEIGHT * tile_offset as f32;
@@ -305,7 +298,7 @@ pub extern "C" fn on_animation_frame(state: *mut State) {
         state.surface.canvas().draw_rect(Rect {left: 0., top: y, right: surface_width as f32, bottom: y + TILE_HEIGHT  }, &tile_border);
         state.set_tile(tile_offset, image);
 
-        // println!("tile draw {}", tile_offset);
+        println!("tile draw {}", tile_offset);
     } 
 
     // let font = Font::new(TYPEFACE.clone(), Some(56.0));
@@ -320,7 +313,7 @@ pub extern "C" fn on_animation_frame(state: *mut State) {
 
 #[no_mangle]
 pub extern "C" fn on_translate(state: *mut State, scroll: i32) {
-    let start = now();
+    // let start = now();
     let state = unsafe { state.as_mut() }.expect("got an invalid state pointer");
     state.surface.canvas().clear(Color::WHITE);
     
@@ -337,21 +330,20 @@ pub extern "C" fn on_translate(state: *mut State, scroll: i32) {
     let tiles_on_screen = ((surface_height + scroll_offset) as f32 / TILE_HEIGHT).ceil() as i32;
     let end_tile = start_tile + tiles_on_screen;
 
-    println!("setup {}", now() - start);
-    let start = now();
+    // println!("setup {}", now() - start);
+    // let start = now();
 
     for tile_offset in start_tile..end_tile {
         // let image = raster_tile(state, tile_offset);
         let maybe_image = state.tile_cache.get(&tile_offset);
-        let image: &Image;
         
-        
-        image = match maybe_image {
+        let image = match maybe_image {
             Some(image) => image,
             None => {
-                println!("draw tile {}", tile_offset);
+                let start = now();
                 let image = raster_tile(state, tile_offset);
                 state.set_tile(tile_offset, image);
+                println!("draw tile with offsest {} took {}ms.", tile_offset, now() - start);
                 state.tile_cache.get(&tile_offset).unwrap()
             }
         };
@@ -360,11 +352,11 @@ pub extern "C" fn on_translate(state: *mut State, scroll: i32) {
         state.surface.canvas().draw_image(&image, Point { x: 0., y}, None);
         state.surface.canvas().draw_rect(Rect {left: 0., top: y, right: surface_width as f32, bottom: y + TILE_HEIGHT  }, &tile_border);
     } 
-    println!("loop {}", now() - start);
-    let start = now();
+    // println!("loop {}", now() - start);
+    // let start = now();
     // let start = now();
     state.surface.flush();
-    println!("flush {}", now() - start);
+    // println!("flush {}", now() - start);
 }
 
 /// The main function is called by emscripten when the WASM object is created.
@@ -399,7 +391,7 @@ fn main() {
     // let data = Data::new_bytes(text.as_bytes().to_vec());
     
     // for x in &font_mgr.family_names() {
-    //     println!("family name {:?}", x);
+        // println!("family name {:?}", x);
     // }
     
     // println!("{:#?}",);

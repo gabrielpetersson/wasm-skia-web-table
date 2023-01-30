@@ -1,6 +1,31 @@
 /**
  * Make a canvas element fit to the display window.
  */
+let totDelta = 0;
+// let toBottom = true;
+const startFakeScrolling = () => {
+  const SCROLL_BY = 300;
+  const cb = () => {
+    // if (totDelta > metrics.missingHeight / 2) {
+    //   toBottom = false;
+    // } else if (totDelta < 100) {
+    //   toBottom = true;
+    // }
+
+    const delta = SCROLL_BY; //toBottom ? SCROLL_BY : -SCROLL_BY;
+    totDelta += delta;
+
+    // document
+    //   .querySelector("canvas")
+    window.dispatchEvent(
+      new CustomEvent("mousewheel", { detail: { deltaY: delta } })
+    );
+
+    window.requestAnimationFrame(cb);
+  };
+  window.requestAnimationFrame(cb);
+};
+
 function resizeCanvasToDisplaySize(canvas) {
   const width = canvas.clientWidth * window.devicePixelRatio;
   const height = canvas.clientHeight * window.devicePixelRatio;
@@ -67,7 +92,9 @@ createRustSkiaModule().then((RustSkia) => {
     "mousewheel",
     (event) => {
       event.preventDefault();
-      scrollY += event.deltaY;
+      const deltaY =
+        event.deltaY != null ? event.deltaY : event.detail.deltaY ?? 0;
+      scrollY += deltaY;
       // scrollX += event.deltaX;
       if (isRunning) {
         return;
@@ -95,4 +122,5 @@ createRustSkiaModule().then((RustSkia) => {
   //   window.requestAnimationFrame(cb);
   // };
   // window.requestAnimationFrame(cb);
+  // startFakeScrolling();
 });
