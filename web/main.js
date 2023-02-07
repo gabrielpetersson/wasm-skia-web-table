@@ -4,7 +4,7 @@
 let totDelta = 0;
 // let toBottom = true;
 const startFakeScrolling = () => {
-  const SCROLL_BY = 300;
+  const SCROLL_BY = 2000;
   const cb = () => {
     // if (totDelta > metrics.missingHeight / 2) {
     //   toBottom = false;
@@ -122,5 +122,5 @@ createRustSkiaModule().then((RustSkia) => {
   //   window.requestAnimationFrame(cb);
   // };
   // window.requestAnimationFrame(cb);
-  // startFakeScrolling();
+  startFakeScrolling();
 });

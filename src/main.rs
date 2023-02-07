@@ -1,9 +1,25 @@
 use skia_safe::{
-    gpu::gl::FramebufferInfo, gpu::BackendRenderTarget, gpu::{DirectContext, BackendFormat}, Color, Paint,
-    PaintStyle, Surface,
+    gpu::gl::FramebufferInfo, 
+    gpu::BackendRenderTarget, 
+    gpu::DirectContext, 
+    Color, 
+    Paint,
+    PaintStyle, 
+    Surface,
     Rect,
     Point,
-    Color4f, ColorSpace, Picture, PictureRecorder,  ISize, Image, Typeface, Data, Font, TextBlob, DeferredDisplayListRecorder, SurfaceCharacterization, ColorType
+    Color4f,
+    ColorSpace,
+    Picture,
+    PictureRecorder,
+    ISize,
+    Image,
+    Typeface,
+    Data,
+    Font,
+    TextBlob,
+    DeferredDisplayListRecorder,
+    Canvas
 };
 use std::{boxed::Box, collections::HashMap};
 use once_cell::sync::Lazy;
@@ -57,13 +73,13 @@ struct GpuState {
 pub struct State {
     gpu_state: GpuState,
     surface: Surface,
-    cell_picture: Picture,
+    recorder: PictureRecorder,
     tile_cache: HashMap<i32, Image>
 }
 
 impl State {
-    fn new(gpu_state: GpuState, surface: Surface, cell_picture: Picture) -> Self {
-        State { gpu_state, surface, tile_cache: HashMap::new() , cell_picture}
+    fn new(gpu_state: GpuState, surface: Surface) -> Self {
+        State { gpu_state, surface, recorder: PictureRecorder::new(), tile_cache: HashMap::new() }
     }
 
     fn set_surface(&mut self, surface: Surface) {
@@ -151,9 +167,9 @@ fn create_cell_picture() -> Picture {
 pub extern "C" fn init(width: i32, height: i32) -> Box<State> {
     let mut gpu_state = create_gpu_state();
     let surface = create_surface(&mut gpu_state, width, height);
-    let cell_picture = create_cell_picture();
+    // let cell_picture = create_cell_picture();
 
-    let state = State::new(gpu_state, surface, cell_picture);
+    let state = State::new(gpu_state, surface);
     Box::new(state)
 }
 
@@ -164,57 +180,39 @@ pub extern "C" fn resize_surface(state: *mut State, width: i32, height: i32) {
     state.set_surface(surface);
 }
 
-const USE_GPU: bool = false;
-fn raster_tile(state: &mut State, tile_offset: i32) -> Image {  //, paint: &Paint, font: &Font
+
+fn paint_tile(tile_offset: i32, canvas: &mut Canvas, tile_width: f32) {
     // let start = now();
     
     let mut text_paint = Paint::default();
-    text_paint.set_color4f(Color4f { r: 255., g: 255., b: 255., a: 1.}, None);
+    text_paint.set_color4f(Color4f { r: 1., g: 1., b: 1., a: 1.}, None);
     // text_paint.set_anti_alias(true);
     
-    let mut bg_paint = Paint::default();
-    bg_paint.set_style(PaintStyle::Fill);
-    bg_paint.set_color(Color::GRAY);
-    bg_paint.set_anti_alias(true);
+    // let mut bg_paint = Paint::default();
+    // bg_paint.set_style(PaintStyle::Fill);
+    // bg_paint.set_color4f(Color4f {r: 0.094, g: 0.12, b: 0.15, a: 1.}, None);
+    // bg_paint.set_anti_alias(true);
     
     let mut border_paint = Paint::default();
     border_paint.set_style(PaintStyle::Fill);
-    border_paint.set_color(Color::BLACK);
+    border_paint.set_color4f(Color4f {r: 0.19, g: 0.24, b: 0.29, a: 1.} , None);
     border_paint.set_anti_alias(true);
-
-    // let vv = state.surface.recording_context().unwrap();
-    // &surf.from_backend_render_target(ColorType::RGBA8888, &BackendFormat::new_gl(state.gpu_state.framebuffer_info.format, state.gpu_state.framebuffer_info.format))
-    // let surf = SurfaceCharacterization::default();
     
-    let canvas;
-    let mut surf;
-    let mut display_list_recorder;
-    if USE_GPU == true {
-        surf = create_surface(&mut state.gpu_state, state.surface.width(), TILE_HEIGHT as i32);
-        let characterization = surf.characterize().unwrap();
-        let mut display_list_recorder = DeferredDisplayListRecorder::new(&characterization);
-        canvas = display_list_recorder.canvas();
-    } else {
-        canvas = state.recorder.begin_recording(Rect { left:0., top: 0., right: state.surface.width() as f32, bottom: TILE_HEIGHT}, None);    
-    }
-    
-
     // println!("tile setup - {}", now() - start);
     // let start = now();
 
-    let start_row = tile_offset * ROWS_PER_TILE;
+    let start_row = tile_offset * ROWS_PER_TILE; 
     let end_row = ROWS_PER_TILE + start_row;
     
     // background
-    let tile_width = state.surface.width() as f32;
-    canvas.draw_rect(Rect {left: 0., top: 0., right: tile_width, bottom: TILE_HEIGHT},  &bg_paint);
+    // canvas.draw_rect(Rect {left: 0., top: 0., right: tile_width, bottom: TILE_HEIGHT},  &bg_paint);
     // println!("tile bg - {}", now() - start);
     // let start = now();
 
     // horizontal lines
     for row in start_row..end_row {
         let y = CELL_HEIGHT * (row - start_row + 1) as f32;
-        canvas.draw_line(Point {x: 0., y },Point {x:tile_width, y },  &border_paint);
+        canvas.draw_line(Point {x: 0., y },Point {x: tile_width, y },  &border_paint);
     }
 
     // println!("tile horizontal lines - {}", now() - start);
@@ -236,51 +234,70 @@ fn raster_tile(state: &mut State, tile_offset: i32) -> Image {  //, paint: &Pain
         for col in 0..7 {
             let x = CELL_WIDTH * col as f32;
             // let col_string = col.to_string();
-            // canvas.draw_text_blob(&text_blob, (x + 20., y + 40.), &text_paint);
             // let start = now();
-            // canvas.draw_text_blob(&text_blob, (x + 20., y + 40.), &text_paint);
             // slow
             // let s: String = rand::thread_rng()
             //     .sample_iter(&Alphanumeric)
             //     .take(7)
             //     .map(char::from)
             //     .collect();
+            // let s = format!("{}-{}", row_string, col.to_string());
 
-            let text_blob = TextBlob::from_str(&row_string, &FONT).unwrap();
-            canvas.draw_text_blob(text_blob, (x + 20., y + 40.),  &text_paint);
+            // let text_blob = TextBlob::from_str(&row_string, &FONT).unwrap();
+            // canvas.draw_text_blob(text_blob, (x + 20., y + 40.),  &text_paint);
+            canvas.draw_str(&row_string, (x + 20., y + 40.),  &FONT, &text_paint);
             // println!("hh draw {}", now() - start);
         }        
     }
     
     // println!("tile text - {}", now() - start);
     // let start = now();
+}
 
-    
-    let image;
+const USE_GPU: bool = false;
+fn raster_tile(state: &mut State, tile_offset: i32) -> Image {  //, paint: &Paint, font: &Font
+    // let vv = state.surface.recording_context().unwrap();
+    // &surf.from_backend_render_target(ColorType::RGBA8888, &BackendFormat::new_gl(state.gpu_state.framebuffer_info.format, state.gpu_state.framebuffer_info.format))
+    // let surf = SurfaceCharacterization::default();
+
     if USE_GPU == true {
+        let mut surf = create_surface(&mut state.gpu_state, state.surface.width(), TILE_HEIGHT as i32);
+        let characterization = surf.characterize().unwrap();
+        let mut display_list_recorder = DeferredDisplayListRecorder::new(&characterization);
+        let canvas = display_list_recorder.canvas();
+
+        paint_tile(tile_offset, canvas, state.surface.width() as f32);
+
         let display_list = display_list_recorder.detach().unwrap();
         surf.draw_display_list(&display_list);
         // println!("tile draw display list - {}", now() - start);
         // let start = now();
-        image = surf.image_snapshot();
+        let image = surf.image_snapshot();
+
+        // println!("IS GPU?? {}", image.is_texture_backed());
+        image
         // println!("tile image - {}", now() - start);
     } else {
-        let picture = state.recorder.finish_recording_as_picture(None).unwrap();
-        image = Image::from_picture(&picture, ISize { width: state.surface.width(), height: TILE_HEIGHT as i32}, None, None, skia_safe::image::BitDepth::U8, Some(ColorSpace::new_srgb())).unwrap();
-        // let new_image = image.new_texture_image(&mut state.gpu_state.context, skia_safe::gpu::MipMapped::No).unwrap();
-        println!("IS GPU?? {}", image.is_texture_backed());
+        let mut recorder = PictureRecorder::new();
+        let canvas = recorder.begin_recording(Rect { left:0., top: 0., right: state.surface.width() as f32, bottom: TILE_HEIGHT}, None);    
+        
+        paint_tile(tile_offset, canvas, state.surface.width() as f32);
+        let picture = recorder.finish_recording_as_picture(None).unwrap();
+        let image = Image::from_picture(&picture, ISize { width: state.surface.width(), height: TILE_HEIGHT as i32}, None, None, skia_safe::image::BitDepth::U8, Some(ColorSpace::new_srgb())).unwrap();
+        
+        // println!("IS GPU?? {}", image.is_texture_backed());
+        image
     }
-    image
 }
 
 #[no_mangle]
 pub extern "C" fn on_animation_frame(state: *mut State) {
     let state = unsafe { state.as_mut() }.expect("got an invalid state pointer");
-    state.surface.canvas().clear(Color::WHITE);
+    state.surface.canvas().clear(Color4f {r: 41., g: 55., b: 66., a: 1.});
 
     let mut tile_border = Paint::default();
     tile_border.set_style(PaintStyle::Stroke);
-    tile_border.set_color4f(Color4f {r: 255., g: 0., b: 0., a: 1.}, None);
+    tile_border.set_color4f(Color4f {r: 1., g: 0., b: 0., a: 1.}, None);
     tile_border.set_stroke_width(2.);
 
     let surface_height = state.surface.height();
@@ -298,7 +315,7 @@ pub extern "C" fn on_animation_frame(state: *mut State) {
         state.surface.canvas().draw_rect(Rect {left: 0., top: y, right: surface_width as f32, bottom: y + TILE_HEIGHT  }, &tile_border);
         state.set_tile(tile_offset, image);
 
-        println!("tile draw {}", tile_offset);
+        // println!("tile draw {}", tile_offset);
     } 
 
     // let font = Font::new(TYPEFACE.clone(), Some(56.0));
@@ -315,11 +332,11 @@ pub extern "C" fn on_animation_frame(state: *mut State) {
 pub extern "C" fn on_translate(state: *mut State, scroll: i32) {
     // let start = now();
     let state = unsafe { state.as_mut() }.expect("got an invalid state pointer");
-    state.surface.canvas().clear(Color::WHITE);
+    state.surface.canvas().clear(Color4f {r: 0.094, g: 0.12, b: 0.15, a: 1.});
     
     let mut tile_border = Paint::default();
     tile_border.set_style(PaintStyle::Stroke);
-    tile_border.set_color4f(Color4f {r: 255., g: 0., b: 0., a: 1.}, None);
+    tile_border.set_color4f(Color4f {r: 1., g: 0., b: 0., a: 1.}, None);
     tile_border.set_stroke_width(2.);
     
     let surface_height = state.surface.height();
